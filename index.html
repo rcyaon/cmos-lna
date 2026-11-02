@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CMOS LNB layout viewer</title>
+<style>
+  /* EDA-tool look (matches rcyaon/bidir-level-shifter viewer): dark dock, monospace, stippled swatches */
+  :root {
+    --dock: #1d2126; --dock-2: #252a31; --title: #2f353e; --text: #d7dce3; --muted: #8b95a3;
+    --line: #3a414b; --edge: #0f1215; --accent: #f0b429; --sel: #34404f; --canvas: #0b0d10;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: grid; grid-template-columns: 1fr 320px; grid-template-rows: 100%;
+    background: var(--edge); color: var(--text);
+    font: 12px/1.35 var(--mono);
+  }
+  body.collapsed { grid-template-columns: 1fr 30px; }
+  body.collapsed aside > :not(.head) { display: none; }
+  body.collapsed .head { flex-direction: column; height: 100%; padding: 4px 0; }
+  body.collapsed .head h1 { writing-mode: vertical-rl; transform: rotate(180deg); margin-top: 8px; color: var(--muted); }
+  body.collapsed .head h1 .tag { display: none; }
+  aside {
+    grid-column: 2; grid-row: 1; min-width: 0;
+    background: var(--dock); border-left: 1px solid var(--edge);
+    box-shadow: inset 1px 0 0 var(--line);
+    overflow-y: auto; display: flex; flex-direction: column;
+  }
+  .head {
+    display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px;
+    background: linear-gradient(#353c46, #2b3139); border-bottom: 1px solid var(--edge);
+    position: sticky; top: 0; z-index: 1;
+  }
+  h1 { font-size: 12px; margin: 0; font-weight: 600; letter-spacing: .02em; flex: 1; white-space: nowrap; }
+  h1 .tag { color: var(--accent); }
+  #panel-toggle { width: 20px; height: 20px; padding: 0; line-height: 18px; text-align: center; flex: none; }
+  .dock { border-bottom: 1px solid var(--edge); }
+  .dock > h2 {
+    display: flex; align-items: center; gap: 6px; margin: 0; padding: 3px 10px;
+    background: var(--title); border-bottom: 1px solid var(--edge); box-shadow: inset 0 1px 0 #3c434d;
+    font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #b9c2ce;
+    cursor: pointer; user-select: none;
+  }
+  .dock > h2::before { content: "▾"; color: var(--muted); }
+  .dock.shut > h2::before { content: "▸"; }
+  .dock.shut > :not(h2) { display: none; }
+  .dock > h2 .meta { margin-left: auto; color: var(--muted); letter-spacing: 0; text-transform: none; font-weight: 400; }
+  .dock > h2 .pane-tag { color: var(--accent); }
+  .body { padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+  p { margin: 0; color: var(--muted); font-size: 11px; }
+  code, kbd { font: inherit; color: #c9d3df; background: var(--dock-2); padding: 0 3px; border: 1px solid var(--line); }
+  a { color: var(--accent); }
+  select, button {
+    font: inherit; color: var(--text); background: linear-gradient(#323943, #2a3038);
+    border: 1px solid var(--edge); box-shadow: inset 0 1px 0 #414955; border-radius: 2px; padding: 3px 8px;
+  }
+  select { width: 100%; min-width: 0; background: var(--dock-2); box-shadow: none; border-color: var(--line); }
+  select:disabled { color: var(--muted); }
+  button { cursor: pointer; }
+  button:hover, select:hover { border-color: var(--accent); }
+  button:active, button.on { background: #23282f; box-shadow: inset 0 1px 2px #000; color: var(--accent); }
+  :focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+  .toolbar { display: flex; gap: 0; }
+  .toolbar button { flex: 1; border-radius: 0; }
+  .toolbar button + button { border-left: 0; }
+  .toolbar button:first-child { border-radius: 2px 0 0 2px; }
+  .toolbar button:last-child { border-radius: 0 2px 2px 0; }
+  .row { display: grid; grid-template-columns: 52px 1fr; align-items: center; gap: 6px; }
+  .row > span { color: var(--muted); }
+  .readout { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; font-variant-numeric: tabular-nums; margin: 0; }
+  .readout dt { color: var(--muted); }
+  .readout dd { margin: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #layers, #labels { list-style: none; margin: 0; padding: 2px 0; }
+  #layers label, #labels label {
+    display: grid; grid-template-columns: 14px 22px 1fr auto auto auto; align-items: center; gap: 6px;
+    padding: 1px 10px; cursor: pointer; white-space: nowrap;
+  }
+  #labels label { grid-template-columns: 14px 1fr; }
+  #layers li:nth-child(even) label { background: rgba(255, 255, 255, .025); }
+  #layers label:hover, #labels label:hover { background: var(--sel); }
+  input[type=checkbox] { margin: 0; width: 12px; height: 12px; accent-color: var(--accent); }
+  .swatch { width: 22px; height: 12px; border: 1px solid; flex: none; }
+  .lname { overflow: hidden; text-overflow: ellipsis; }
+  .gds { color: var(--muted); font-size: 10.5px; text-align: right; min-width: 44px; }
+  .count { color: #6f7a88; font-size: 10.5px; text-align: right; min-width: 38px; font-variant-numeric: tabular-nums; }
+  #layers li.off label { color: #66707d; }
+  .foot { margin-top: auto; padding: 6px 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+  main { grid-column: 1; grid-row: 1; min-width: 0; min-height: 0; display: flex; background: var(--edge); }
+  .pane { position: relative; flex: 1; min-width: 0; min-height: 0; background: var(--canvas); }
+  .pane[hidden] { display: none; }
+  .pane.drop { box-shadow: inset 0 0 0 2px var(--accent); }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  canvas.dragging { cursor: grabbing; }
+  canvas.ruler { cursor: crosshair; }
+  .title {
+    position: absolute; left: 0; top: 0; max-width: 100%; padding: 3px 10px; pointer-events: none;
+    background: rgba(29, 33, 38, .92); border: 1px solid var(--line); border-width: 0 1px 1px 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .title b { color: var(--accent); font-weight: 600; }
+  .title span { color: var(--muted); }
+  .status {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 3px 10px; min-height: 21px;
+    background: rgba(29, 33, 38, .92); border-top: 1px solid var(--line); color: var(--text);
+    font: 11px var(--mono); font-variant-numeric: tabular-nums; pointer-events: none; white-space: pre;
+    overflow: hidden;
+  }
+  .message {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    color: var(--muted); pointer-events: none; text-align: center; padding: 16px; white-space: pre-line;
+  }
+  .message[hidden] { display: none; }
+  @media (max-width: 720px) {
+    body, body.collapsed { grid-template-columns: 1fr; grid-template-rows: minmax(60vh, 1fr) auto; height: auto; min-height: 100%; }
+    main { grid-column: 1; grid-row: 1; flex-direction: column; min-height: 60vh; }
+    aside { grid-column: 1; grid-row: 2; border-left: 0; border-top: 1px solid var(--line); max-height: none; }
+    body.collapsed .head { flex-direction: row; height: auto; }
+    body.collapsed .head h1 { writing-mode: horizontal-tb; transform: none; margin: 0; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <section class="pane" id="pane-a">
+    <canvas aria-label="Layout"></canvas>
+    <div class="title"><b>▣</b> <span class="title-text">–</span></div>
+    <div class="message">Loading…</div>
+    <div class="status"></div>
+  </section>
+</main>
+
+<aside id="panel">
+  <div class="head">
+    <h1><span class="tag">▣</span> CMOS LNB layouts</h1>
+    <button id="panel-toggle" type="button" aria-controls="panel" aria-expanded="true"
+            aria-label="Hide panel" title="Hide panel">›</button>
+  </div>
+
+
+  <template id="pane-controls">
+    <section class="dock">
+      <h2>Layout <span class="pane-tag"></span><span class="meta src-meta"></span></h2>
+      <div class="body">
+        <label class="row"><span>source</span><select class="src" aria-label="Source"></select></label>
+        <label class="row"><span>branch</span><select class="branch" aria-label="Branch"></select></label>
+        <label class="row"><span>file</span><select class="file" aria-label="File"></select></label>
+        <label class="row"><span>cell</span><select class="cell" aria-label="Cell"></select></label>
+        <dl class="readout">
+          <dt>bbox</dt><dd class="info">–</dd>
+          <dt>shapes</dt><dd class="nshapes">–</dd>
+          <dt>cells</dt><dd class="ncells">–</dd>
+          <dt>pdk</dt><dd>GF180MCU</dd>
+        </dl>
+        <div class="toolbar">
+          <button type="button" class="fit" title="Zoom to fit (F)">Fit</button>
+          <button type="button" class="ruler-btn" title="Measure (R)">Ruler</button>
+          <button type="button" class="open" title="Open a local .gds file">Open…</button>
+          <button type="button" class="reload" title="Re-fetch from GitHub">↻</button>
+        </div>
+      </div>
+    </section>
+  </template>
+  <div id="pane-docks"></div>
+
+  <section class="dock">
+    <h2>Layers <span class="meta">gds &nbsp; shapes</span></h2>
+    <div class="body" style="padding-bottom:0">
+      <div class="toolbar">
+        <button id="all" type="button" title="Show all layers">All</button>
+        <button id="none" type="button" title="Hide all layers">None</button>
+        <button id="metals" type="button" title="Metals and vias only">Metals</button>
+        <button id="fe" type="button" title="Front end: wells, active, poly, contacts">FEOL</button>
+      </div>
+    </div>
+    <ul id="layers"></ul>
+  </section>
+
+  <section class="dock">
+    <h2>Labels</h2>
+    <ul id="labels">
+      <li><label><input type="checkbox" id="nets" checked> Net / pin names</label></li>
+      <li><label><input type="checkbox" id="insts"> Instance outlines</label></li>
+    </ul>
+  </section>
+
+  <div class="foot">
+    <p>Drag to pan, scroll or pinch to zoom, double-click to fit. <kbd>F</kbd> fit, <kbd>R</kbd> ruler,
+       <kbd>Esc</kbd> clear. Alt-click a layer to show only that layer. Drop a <code>.gds</code> on the canvas to open it.</p>
+    <p>GDS files are read live from
+      <a href="https://github.com/sckzor/CMOS_LNB" target="_blank" rel="noopener">sckzor/CMOS_LNB</a> and
+      <a href="https://github.com/rcyaon/cmos-lna" target="_blank" rel="noopener">rcyaon/cmos-lna</a>.
+      The URL keeps your selection, so it can be shared.</p>
+  </div>
+  <input type="file" id="file-input" accept=".gds,.gds2,.gdsii,.GDS" hidden>
+</aside>
+
+<script src="gds.js"></script>
+<script src="layers.js"></script>
+<script src="viewer.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
