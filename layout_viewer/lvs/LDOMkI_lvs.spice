@@ -1,0 +1,12 @@
+* LDOMkI: NMOS-input error amp (ErrorAmplifierNMOSMkI) + PMOS pass device
+* From Schematic/LDO/LDOMkI.sch and Schematic/LDO/netlist.cir (error amp NMOS sources on VSS).
+.subckt LDOMkI VDD VSS BandGap Input Output TBias
+* ErrorAmplifierNMOSMkI
+MX1 mn mn VDD VDD pfet_06v0 W=10u L=4u
+MX2 G mn VDD VDD pfet_06v0 W=10u L=4u
+MX3 G BandGap tail VSS nfet_06v0 W=10u L=4u
+MX4 tail TBias VSS VSS nfet_06v0 W=10u L=4u
+MX5 mn Input tail VSS nfet_06v0 W=10u L=4u
+* pass device
+MP Output G VDD VDD pfet_06v0 W=80u L=10u
+.ends
